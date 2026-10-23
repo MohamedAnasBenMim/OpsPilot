@@ -1,167 +1,166 @@
 # OpsPilot
 
-**Une plateforme Kubernetes GitOps observable, avec un agent qui diagnostique les incidents à la place de l'astreinte.**
+**An observable GitOps Kubernetes platform, with an agent that diagnoses incidents so the on-call engineer doesn't have to.**
 
 ![CI](https://github.com/MohamedAnasBenMim/opspilot/actions/workflows/ci.yml/badge.svg)
 
-Quand une alerte se déclenche à 3 h du matin, l'ingénieur d'astreinte passe l'essentiel de son temps
-à **chercher** : quel graphe regarder, quels logs, quel déploiement récent. OpsPilot fait cette recherche
-automatiquement : il reçoit l'alerte, collecte métriques, logs, événements Kubernetes et déploiements,
-identifie la cause racine la plus probable **en citant ses preuves**, propose une action et publie un
-rapport d'incident.
+When an alert fires at 3 a.m., the on-call engineer spends most of their time **searching**: which dashboard
+to check, which logs, which recent deployment. OpsPilot does that search automatically: it receives the alert,
+collects metrics, logs, Kubernetes events and deployments, identifies the most likely root cause
+**citing its evidence**, suggests an action and publishes an incident report.
 
 ```
-Alertmanager ──► OpsPilot ──► Prometheus (métriques) ─┐
-                     │    ──► Loki (logs)             ├─► signaux + preuves ─► règles / LLM ─► diagnostic
-                     │    ──► API Kubernetes          ┘                                         │
-                     │         (événements, rollouts)                                           ▼
-                     └──────────────────────────────────────────────► rapport + message Slack/Teams
+Alertmanager ──► OpsPilot ──► Prometheus (metrics) ───┐
+                     │    ──► Loki (logs)             ├─► signals + evidence ─► rules / LLM ─► diagnosis
+                     │    ──► Kubernetes API          ┘                                         │
+                     │         (events, rollouts)                                               ▼
+                     └──────────────────────────────────────────────► report + Slack/Teams message
 ```
 
-## Ce que contient le projet
+## What's in the project
 
-| Brique | Contenu |
+| Component | Contents |
 |---|---|
-| **Infrastructure as Code** | Terraform : cluster local **kind** ou **AKS** (Azure), même module « plateforme » pour les deux |
-| **GitOps** | **Argo CD** suit `deploy/k8s/overlays/local` : tout changement passe par Git |
-| **Observabilité** | **Prometheus Operator**, Alertmanager, **Grafana** (tableau de bord SLO), **Loki** |
-| **SLO / SRE** | SLO 99,5 % et p95 < 400 ms, alertes de *burn rate* du budget d'erreur, runbooks |
-| **Chaos engineering** | **Chaos Mesh** (pod-kill, latence réseau, stress CPU/mémoire) + pannes applicatives à la demande |
-| **Agent de diagnostic** | 7 causes racines, preuves citées, moteur à règles hors ligne ou **LLM** (OpenAI, Mistral, Ollama…) |
-| **Application de démo** | `orders-api` (FastAPI) instrumentée, durcie (non-root, FS en lecture seule), avec HPA |
-| **CI/CD** | GitHub Actions : tests, lint, évaluation de l'agent, `kubeconform`, `promtool`, `amtool`, `terraform validate`, images sur GHCR |
+| **Infrastructure as Code** | Terraform: local **kind** cluster or **AKS** (Azure), same "platform" module for both |
+| **GitOps** | **Argo CD** tracks `deploy/k8s/overlays/local`: every change goes through Git |
+| **Observability** | **Prometheus Operator**, Alertmanager, **Grafana** (SLO dashboard), **Loki** |
+| **SLO / SRE** | 99.5% SLO and p95 < 400 ms, error budget *burn rate* alerts, runbooks |
+| **Chaos engineering** | **Chaos Mesh** (pod-kill, network latency, CPU/memory stress) + on-demand application faults |
+| **Diagnosis agent** | 7 root causes, cited evidence, offline rule engine or **LLM** (OpenAI, Mistral, Ollama…) |
+| **Demo application** | Instrumented, hardened `orders-api` (FastAPI) (non-root, read-only FS), with HPA |
+| **CI/CD** | GitHub Actions: tests, lint, agent evaluation, `kubeconform`, `promtool`, `amtool`, `terraform validate`, images on GHCR |
 
-## Démarrage rapide
+## Quick start
 
-### Sans Kubernetes (5 minutes)
+### Without Kubernetes (5 minutes)
 
 ```bash
 docker compose up --build
 # Grafana http://localhost:3000 (admin/admin) · Prometheus :9090 · OpsPilot http://localhost:8080/incidents
 
-# provoquer une panne du service de paiement
+# trigger an outage of the payment service
 curl -X POST localhost:8001/chaos -H 'x-chaos-token: demo' -H 'content-type: application/json' \
      -d '{"mode": "dependency_down", "duration_s": 600}'
-# ~3 min plus tard : l'alerte part, OpsPilot publie son diagnostic sur /incidents
+# ~3 min later: the alert fires, OpsPilot publishes its diagnosis on /incidents
 ```
 
-### Sur Kubernetes (kind + Terraform + Argo CD)
+### On Kubernetes (kind + Terraform + Argo CD)
 
 ```bash
 cd infra/terraform/envs/local
-terraform init && terraform apply          # cluster kind, Prometheus, Grafana, Loki, Argo CD, Chaos Mesh
-kubectl -n shop get pods                   # Argo CD a déployé orders-api, loadgen et OpsPilot
+terraform init && terraform apply          # kind cluster, Prometheus, Grafana, Loki, Argo CD, Chaos Mesh
+kubectl -n shop get pods                   # Argo CD has deployed orders-api, loadgen and OpsPilot
 kubectl apply -f ../../../../deploy/chaos/experiments.yaml -l scenario=network-latency
 ```
 
-Sur Azure : `infra/terraform/envs/azure` (AKS, Log Analytics). Pensez au `terraform destroy`.
+On Azure: `infra/terraform/envs/azure` (AKS, Log Analytics). Don't forget to `terraform destroy`.
 
-Avec un LLM : `kubectl -n shop create secret generic opspilot-llm --from-literal=api-key=...`
-(ou `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` en docker compose).
+With an LLM: `kubectl -n shop create secret generic opspilot-llm --from-literal=api-key=...`
+(or `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` with docker compose).
 
-## Exemple de diagnostic
+## Example diagnosis
 
-Incident **réel** provoqué sur la stack locale (panne du service de paiement), diagnostiqué par le moteur à règles :
+A **real** incident triggered on the local stack (payment service outage), diagnosed by the rule engine:
 
-> **Cause racine probable : Dépendance externe indisponible**
+> **Probable root cause: External dependency unavailable**
 >
-> upstream_error_rate : 0 → 1 (apparition) ; error_rate : 0 → 0,319 (apparition).
+> upstream_error_rate: 0 → 1 (new); error_rate: 0 → 0.319 (new).
 >
-> **Action recommandée :** activer le disjoncteur / mode dégradé et contacter l'équipe propriétaire de la dépendance.
+> **Recommended action:** enable the circuit breaker / degraded mode and contact the team that owns the dependency.
 
-## Évaluation
+## Evaluation
 
-L'agent est évalué comme un modèle : sur des incidents dont la cause est connue, on mesure s'il la retrouve
-(**top-1**, **top-3**) et s'il cite les bonnes preuves. La CI bloque toute régression.
+The agent is evaluated like a model: on incidents with a known cause, we measure whether it finds it
+(**top-1**, **top-3**) and whether it cites the right evidence. CI blocks any regression.
 
-### Incidents réels (stack locale, cause injectée puis enregistrée avec `opspilot record`)
+### Real incidents (local stack, cause injected then recorded with `opspilot record`)
 
-| Incident | Cause injectée | Diagnostic | Preuves citées |
+| Incident | Injected cause | Diagnosis | Cited evidence |
 |---|---|---|---|
-| r01 | panne du service de paiement | ✅ dépendance indisponible | erreurs amont, erreurs 5xx |
-| r02 | requêtes SQL ralenties (+ fin de r01 dans la fenêtre) | ✅ saturation base de données | connexions DB, latence |
-| r03 | déploiement v1.1.0 + erreurs (+ fin de r02 dans la fenêtre) | ✅ régression de déploiement | déploiement, erreurs 5xx |
+| r01 | payment service outage | ✅ dependency unavailable | upstream errors, 5xx errors |
+| r02 | slowed-down SQL queries (+ tail of r01 in the window) | ✅ database saturation | DB connections, latency |
+| r03 | v1.1.0 deployment + errors (+ tail of r02 in the window) | ✅ deployment regression | deployment, 5xx errors |
 
-**3/3 causes retrouvées.** C'est un premier échantillon, trop petit pour une statistique : il valide la chaîne
-complète (Prometheus → Alertmanager → OpsPilot) et montre que l'agent écarte les incidents précédents encore
-visibles dans la fenêtre d'analyse. Prochaine étape : 20+ incidents sur cluster Kubernetes.
+**3/3 causes found.** This is a first sample, too small to be statistically meaningful: it validates the end-to-end
+pipeline (Prometheus → Alertmanager → OpsPilot) and shows that the agent rules out previous incidents still
+visible in the analysis window. Next step: 20+ incidents on a Kubernetes cluster.
 
-### Scénarios synthétiques (21 incidents, 7 causes, avec fausses pistes)
+### Synthetic scenarios (21 incidents, 7 causes, with red herrings)
 
-| Top-1 | Top-3 | Preuves clés citées | Latence |
+| Top-1 | Top-3 | Key evidence cited | Latency |
 |---|---|---|---|
-| 100 % | 100 % | 100 % | < 2 ms |
+| 100% | 100% | 100% | < 2 ms |
 
-Ce score n'est **pas** une mesure de performance : les scénarios et les règles ont été écrits ensemble.
-Ils servent de **test de non-régression**. Les chiffres qui comptent sont ceux des incidents réels,
-dont le nombre augmente avec chaque expérience de chaos ([méthode](docs/chaos.md)).
+This score is **not** a performance measure: the scenarios and the rules were written together.
+They serve as a **regression test**. The numbers that matter are those from real incidents,
+which grow with every chaos experiment ([method](docs/chaos.md)).
 
-### Ce que les incidents réels ont appris
+### What real incidents taught us
 
-Rejouer de vrais incidents a révélé trois défauts invisibles sur les données synthétiques, corrigés depuis :
+Replaying real incidents exposed three flaws that were invisible on synthetic data, all since fixed:
 
-- **Série vide en PromQL** : tant qu'aucune erreur 5xx n'existe, la série n'existe pas et la requête
-  renvoyait du vide au lieu de 0 (correction : `or vector(0)`).
-- **Historique trop court** : sur un service démarré récemment, l'absence de ligne de base faisait
-  passer *toutes* les métriques pour anormales. L'agent utilise désormais le début de la fenêtre comme référence
-  et ignore les hausses relatives sans importance absolue.
-- **Incident précédent dans la fenêtre** : la fin d'un incident déjà résorbé était prise pour la cause du suivant.
-  Une anomalie doit désormais être **toujours active** au moment de l'alerte, et la ligne de base utilise la médiane.
+- **Empty series in PromQL**: as long as no 5xx error exists, the series doesn't exist and the query
+  returned nothing instead of 0 (fix: `or vector(0)`).
+- **History too short**: on a recently started service, the lack of a baseline made *every* metric
+  look anomalous. The agent now uses the start of the window as its reference
+  and ignores relative increases that are insignificant in absolute terms.
+- **Previous incident in the window**: the tail end of an already-resolved incident was mistaken for the cause of the next one.
+  An anomaly must now be **still active** when the alert fires, and the baseline uses the median.
 
-## Causes racines reconnues
+## Supported root causes
 
-| Cause | Signaux principaux |
+| Cause | Main signals |
 |---|---|
-| Régression de déploiement | déploiement < 30 min avant l'alerte, exceptions, hausse d'erreurs ou de latence |
-| OOMKilled | événement OOMKilled, mémoire à la limite ou en hausse continue, redémarrages |
-| Erreur de configuration | CrashLoopBackOff, logs « missing env / invalid config », ConfigMap ou Secret modifié |
-| Dépendance indisponible | erreurs des appels amont, logs « connection refused » / 503 / disjoncteur |
-| Saturation base de données | pool de connexions au maximum, « timeout acquiring connection » |
-| Saturation CPU | CPU à la limite, pic de trafic, latence |
-| Latence réseau | latence amont en hausse sans erreur ni saturation, timeouts |
+| Deployment regression | deployment < 30 min before the alert, exceptions, rise in errors or latency |
+| OOMKilled | OOMKilled event, memory at the limit or steadily rising, restarts |
+| Configuration error | CrashLoopBackOff, "missing env / invalid config" logs, modified ConfigMap or Secret |
+| Dependency unavailable | upstream call errors, "connection refused" / 503 / circuit breaker logs |
+| Database saturation | connection pool maxed out, "timeout acquiring connection" |
+| CPU saturation | CPU at the limit, traffic spike, latency |
+| Network latency | rising upstream latency with no errors or saturation, timeouts |
 
-Le moteur à règles pondère ces signaux (positivement ou négativement, pour écarter les fausses pistes comme
-un déploiement récent sans rapport). Avec un LLM, le modèle reçoit les mêmes preuves identifiées, doit répondre
-en JSON en les citant, et toute réponse invalide déclenche un repli sur les règles.
+The rule engine weights these signals (positively or negatively, to rule out red herrings such as
+an unrelated recent deployment). With an LLM, the model receives the same identified evidence, must answer
+in JSON citing it, and any invalid response triggers a fallback to the rules.
 
-## API de l'agent
+## Agent API
 
-| Méthode | Route | Rôle |
+| Method | Route | Purpose |
 |---|---|---|
-| POST | `/webhook/alertmanager` | réception des alertes |
-| POST / GET | `/deploys` | enregistrement des déploiements par la CI/CD |
-| GET | `/incidents`, `/incidents/{id}` | diagnostics et rapport Markdown |
-| GET | `/metrics` | métriques de l'agent (diagnostics par cause, durée) |
+| POST | `/webhook/alertmanager` | receives alerts |
+| POST / GET | `/deploys` | records deployments from CI/CD |
+| GET | `/incidents`, `/incidents/{id}` | diagnoses and Markdown report |
+| GET | `/metrics` | agent metrics (diagnoses per cause, duration) |
 
 ```bash
-opspilot diagnose eval/scenarios/s04_oom.json        # rejouer un incident enregistré
-opspilot record --service orders-api --out inc.json  # capturer un incident en direct
+opspilot diagnose eval/scenarios/s04_oom.json        # replay a recorded incident
+opspilot record --service orders-api --out inc.json  # capture a live incident
 ```
 
 ## Structure
 
 ```
-app/                  orders-api (démo instrumentée + injection de pannes) et générateur de trafic
-pilot/opspilot/       agent : collecte (Prometheus, Loki, Kubernetes), signaux, diagnostic, API, CLI
-eval/                 scénarios synthétiques, incidents réels, script d'évaluation
-deploy/k8s/           manifestes Kustomize (base + overlay), PrometheusRule, AlertmanagerConfig
-deploy/argocd/        application Argo CD
-deploy/chaos/         expériences Chaos Mesh
-infra/terraform/      module plateforme + environnements kind et AKS
-observability/        Prometheus, Alertmanager, Grafana, Loki pour docker compose
-docs/                 méthode de chaos, runbooks
+app/                  orders-api (instrumented demo + fault injection) and traffic generator
+pilot/opspilot/       agent: collection (Prometheus, Loki, Kubernetes), signals, diagnosis, API, CLI
+eval/                 synthetic scenarios, real incidents, evaluation script
+deploy/k8s/           Kustomize manifests (base + overlay), PrometheusRule, AlertmanagerConfig
+deploy/argocd/        Argo CD application
+deploy/chaos/         Chaos Mesh experiments
+infra/terraform/      platform module + kind and AKS environments
+observability/        Prometheus, Alertmanager, Grafana, Loki for docker compose
+docs/                 chaos method, runbooks
 ```
 
-## Feuille de route
+## Roadmap
 
-- [x] Agent de diagnostic avec preuves citées, moteur à règles et LLM avec repli
-- [x] Plateforme Terraform (kind, AKS), GitOps Argo CD, Prometheus/Grafana/Loki, Chaos Mesh
-- [x] SLO, alertes de burn rate, runbooks, CI complète
-- [x] Premiers incidents réels enregistrés et évalués
-- [ ] 20+ incidents réels sur cluster Kubernetes (Chaos Mesh), comparaison règles vs LLM
-- [ ] Mesure du temps de diagnostic avec et sans l'agent
-- [ ] Traces distribuées (OpenTelemetry + Tempo) comme source de preuves supplémentaire
+- [x] Diagnosis agent with cited evidence, rule engine and LLM with fallback
+- [x] Terraform platform (kind, AKS), Argo CD GitOps, Prometheus/Grafana/Loki, Chaos Mesh
+- [x] SLOs, burn rate alerts, runbooks, full CI
+- [x] First real incidents recorded and evaluated
+- [ ] 20+ real incidents on a Kubernetes cluster (Chaos Mesh), rules vs LLM comparison
+- [ ] Measure time-to-diagnosis with and without the agent
+- [ ] Distributed tracing (OpenTelemetry + Tempo) as an additional evidence source
 
-## Licence
+## License
 
 MIT
