@@ -2,7 +2,7 @@
 
 **An observable GitOps Kubernetes platform, with an agent that diagnoses incidents so the on-call engineer doesn't have to.**
 
-![CI](https://github.com/MohamedAnasBenMim/opspilot/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/MohamedAnasBenMim/OpsPilot/actions/workflows/ci.yml/badge.svg)
 
 When an alert fires at 3 a.m., the on-call engineer spends most of their time **searching**: which dashboard
 to check, which logs, which recent deployment. OpsPilot does that search automatically: it receives the alert,
