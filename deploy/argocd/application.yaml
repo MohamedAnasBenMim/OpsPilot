@@ -1,0 +1,23 @@
+# Application Argo CD : le cluster suit en continu le dossier deploy/k8s/overlays/local de ce dépôt (GitOps).
+# Installée automatiquement par Terraform (module platform) ; peut aussi être appliquée à la main :
+#   kubectl apply -n argocd -f deploy/argocd/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opspilot-demo
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/MohamedAnasBenMim/opspilot.git
+    targetRevision: main
+    path: deploy/k8s/overlays/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shop
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

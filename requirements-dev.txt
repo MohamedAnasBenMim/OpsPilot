@@ -1,0 +1,5 @@
+-r pilot/requirements.txt
+-r app/requirements.txt
+pytest>=8.0
+ruff>=0.4
+pyyaml>=6.0

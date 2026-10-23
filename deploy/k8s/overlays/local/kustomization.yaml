@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+# Images construites et publiées par la CI (ghcr.io). Pour un cluster kind sans registre :
+#   docker build -t orders-api:dev app && kind load docker-image orders-api:dev --name opspilot
+images:
+  - name: ghcr.io/mohamedanasbenmim/opspilot-orders-api
+    newTag: latest
+  - name: ghcr.io/mohamedanasbenmim/opspilot-agent
+    newTag: latest
+patches:
+  - target: {kind: Deployment, name: orders-api}
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1

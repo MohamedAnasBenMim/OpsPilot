@@ -1,0 +1,7 @@
+loki:
+  enabled: true
+  isDefault: false
+promtail:
+  enabled: true
+grafana:
+  enabled: false

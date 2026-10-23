@@ -1,0 +1,28 @@
+grafana:
+  adminPassword: "${grafana_admin_password}"
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      url: http://loki.monitoring.svc:3100
+
+prometheus:
+  prometheusSpec:
+    # sélectionner les ServiceMonitor / PrometheusRule de tous les namespaces, pas seulement ceux du chart
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 7d
+    resources:
+      requests: {cpu: 200m, memory: 512Mi}
+
+alertmanager:
+  alertmanagerSpec:
+    # prendre en compte les AlertmanagerConfig des namespaces applicatifs (route vers OpsPilot)
+    alertmanagerConfigSelector: {}
+    alertmanagerConfigMatcherStrategy:
+      type: None

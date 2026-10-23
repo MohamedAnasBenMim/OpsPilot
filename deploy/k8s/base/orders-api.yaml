@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-config
+  namespace: shop
+data:
+  PAYMENTS_URL: "simulated"
+  DB_POOL_MAX: "20"
+  APP_VERSION: "v1.0.0"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orders-chaos
+  namespace: shop
+type: Opaque
+stringData:
+  CHAOS_TOKEN: "change-me-in-real-clusters"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  namespace: shop
+  labels: {app: orders-api}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {app: orders-api}
+  template:
+    metadata:
+      labels: {app: orders-api, service: orders-api}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: orders-api
+          image: ghcr.io/mohamedanasbenmim/opspilot-orders-api:latest
+          ports:
+            - {name: http, containerPort: 8000}
+          envFrom:
+            - configMapRef: {name: orders-config}
+            - secretRef: {name: orders-chaos}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+  namespace: shop
+  labels: {app: orders-api}
+spec:
+  selector: {app: orders-api}
+  ports:
+    - {name: http, port: 80, targetPort: http}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: orders-api
+  namespace: shop
+spec:
+  # le job Prometheus prend le nom du service : job="orders-api", attendu par les requêtes de l'agent
+  jobLabel: app
+  selector:
+    matchLabels: {app: orders-api}
+  endpoints:
+    - {port: http, path: /metrics, interval: 15s}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orders-api
+  namespace: shop
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: orders-api}
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 70}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: shop
+  labels: {app: loadgen}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: loadgen}
+  template:
+    metadata:
+      labels: {app: loadgen}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 1000}
+      containers:
+        - name: loadgen
+          image: ghcr.io/mohamedanasbenmim/opspilot-orders-api:latest
+          command: ["python", "loadgen.py", "--url", "http://orders-api.shop.svc", "--rps", "20"]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

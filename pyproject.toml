@@ -1,0 +1,22 @@
+[project]
+name = "opspilot"
+version = "0.1.0"
+description = "Plateforme Kubernetes GitOps observable, avec un agent IA de diagnostic d'incidents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[project.scripts]
+opspilot = "opspilot.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["pilot", "app"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B905", "B008"]

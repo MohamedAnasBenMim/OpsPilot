@@ -1,0 +1,17 @@
+applications:
+  opspilot-demo:
+    namespace: argocd
+    project: default
+    source:
+      repoURL: "${repo_url}"
+      targetRevision: "${revision}"
+      path: "deploy/k8s/overlays/${overlay}"
+    destination:
+      server: https://kubernetes.default.svc
+      namespace: shop
+    syncPolicy:
+      automated:
+        prune: true
+        selfHeal: true
+      syncOptions:
+        - CreateNamespace=true

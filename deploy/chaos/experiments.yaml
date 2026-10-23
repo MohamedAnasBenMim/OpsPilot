@@ -1,0 +1,67 @@
+# Expériences Chaos Mesh (installé par Terraform). Appliquer une expérience à la fois :
+#   kubectl apply -f deploy/chaos/experiments.yaml -l scenario=pod-kill
+# Les pannes applicatives (erreurs, fuite mémoire, pool DB, dépendance) se déclenchent via l'API /chaos
+# d'orders-api : voir docs/chaos.md.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: orders-pod-kill
+  namespace: shop
+  labels: {scenario: pod-kill}
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces: [shop]
+    labelSelectors: {app: orders-api}
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: orders-network-delay
+  namespace: shop
+  labels: {scenario: network-latency}
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces: [shop]
+    labelSelectors: {app: orders-api}
+  delay:
+    latency: "400ms"
+    jitter: "100ms"
+  duration: "10m"
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: orders-cpu-stress
+  namespace: shop
+  labels: {scenario: cpu-saturation}
+spec:
+  mode: all
+  selector:
+    namespaces: [shop]
+    labelSelectors: {app: orders-api}
+  stressors:
+    cpu:
+      workers: 2
+      load: 100
+  duration: "10m"
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: orders-memory-stress
+  namespace: shop
+  labels: {scenario: oom}
+spec:
+  mode: one
+  selector:
+    namespaces: [shop]
+    labelSelectors: {app: orders-api}
+  stressors:
+    memory:
+      workers: 1
+      size: "600MB"
+  duration: "5m"

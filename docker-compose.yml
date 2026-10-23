@@ -1,0 +1,66 @@
+# Démo complète sans Kubernetes : application, agent, Prometheus, Alertmanager, Grafana, Loki.
+#   docker compose up --build
+#   Grafana http://localhost:3000 (admin/admin) · Prometheus :9090 · OpsPilot :8080/incidents
+services:
+  orders-api:
+    build: ./app
+    environment:
+      PAYMENTS_URL: simulated
+      CHAOS_TOKEN: demo
+      APP_VERSION: v1.0.0
+    ports: ["8001:8000"]
+    labels:
+      logging: promtail
+
+  loadgen:
+    build: ./app
+    command: ["python", "loadgen.py", "--url", "http://orders-api:8000", "--rps", "20"]
+    depends_on: [orders-api]
+
+  opspilot:
+    build: ./pilot
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
+      LOKI_SELECTOR: '{service="$$SVC"}'
+      LOOKBACK_MINUTES: "20"
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      CHAT_WEBHOOK_URL: ${CHAT_WEBHOOK_URL:-}
+    ports: ["8080:8080"]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+    ports: ["9090:9090"]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports: ["9093:9093"]
+
+  loki:
+    image: grafana/loki:3.2.1
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports: ["3100:3100"]
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./observability/promtail/config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]

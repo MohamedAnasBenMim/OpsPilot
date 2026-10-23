@@ -1,0 +1,53 @@
+# SLO d'orders-api : 99,5 % de requêtes réussies et p95 < 400 ms, sur 30 jours.
+# Les alertes de "burn rate" (méthode Google SRE) se déclenchent quand le budget d'erreur
+# est consommé trop vite, plutôt que sur un simple seuil instantané.
+groups:
+  - name: orders-api-slo
+    rules:
+      - record: slo:error_ratio:rate5m
+        expr: |
+          sum by (job) (rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum by (job) (rate(http_requests_total[5m])), 1e-9)
+      - record: slo:error_ratio:rate1h
+        expr: |
+          sum by (job) (rate(http_requests_total{status=~"5.."}[1h]))
+            / clamp_min(sum by (job) (rate(http_requests_total[1h])), 1e-9)
+      - record: slo:latency_p95_seconds:5m
+        expr: histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket[5m])))
+
+      - alert: OrdersErrorBudgetFastBurn
+        # consomme 2 % du budget mensuel en 1 h (burn rate 14,4)
+        expr: slo:error_ratio:rate5m{job="orders-api"} > (14.4 * 0.005) and slo:error_ratio:rate1h{job="orders-api"} > (14.4 * 0.005)
+        for: 2m
+        labels: {severity: critical, service: orders-api}
+        annotations:
+          summary: "orders-api brûle son budget d'erreur 14x trop vite"
+          runbook: "https://github.com/MohamedAnasBenMim/opspilot/blob/main/docs/runbooks.md#error-budget"
+
+      - alert: OrdersHighErrorRate
+        expr: slo:error_ratio:rate5m{job="orders-api"} > 0.05
+        for: 2m
+        labels: {severity: critical, service: orders-api}
+        annotations:
+          summary: "Plus de 5 % d'erreurs 5xx sur orders-api"
+
+      - alert: OrdersHighLatency
+        expr: slo:latency_p95_seconds:5m{job="orders-api"} > 0.4
+        for: 3m
+        labels: {severity: warning, service: orders-api}
+        annotations:
+          summary: "Latence p95 d'orders-api au-dessus de 400 ms"
+
+      - alert: OrdersDbPoolSaturated
+        expr: max by (job) (db_pool_in_use{job="orders-api"}) / max by (job) (db_pool_max{job="orders-api"}) > 0.9
+        for: 2m
+        labels: {severity: warning, service: orders-api}
+        annotations:
+          summary: "Pool de connexions DB d'orders-api saturé à plus de 90 %"
+
+      - alert: OrdersDown
+        expr: up{job="orders-api"} == 0
+        for: 1m
+        labels: {severity: critical, service: orders-api}
+        annotations:
+          summary: "orders-api ne répond plus au scrape Prometheus"
